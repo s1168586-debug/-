@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>4A 班問答大賽</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- React & ReactDOM CDN -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <!-- Babel Standalone -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;600;700;900&display=swap');
+    body { font-family: 'Noto Sans TC', -apple-system, BlinkMacSystemFont, sans-serif; }
+  </style>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800">
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    // --- 音效合成器 (Web Audio API) ---
+    const playSound = (type) => {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        const now = ctx.currentTime;
+        if (type === 'click') {
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(600, now);
+          osc.frequency.exponentialRampToValueAtTime(300, now + 0.08);
+          gain.gain.setValueAtTime(0.15, now);
+          gain.gain.linearRampToValueAtTime(0.01, now + 0.08);
+          osc.start(now); osc.stop(now + 0.08);
+        } else if (type === 'submit') {
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(523.25, now);
+          osc.frequency.setValueAtTime(659.25, now + 0.1);
+          osc.frequency.setValueAtTime(783.99, now + 0.16);
+          gain.gain.setValueAtTime(0.2, now);
+          gain.gain.linearRampToValueAtTime(0.01, now + 0.35);
+          osc.start(now); osc.stop(now + 0.35);
+        }
+      } catch (e) { console.error(e); }
+    };
+
+    // --- 地球構造預設 SVG 圖表 ---
+    const EarthStructureSVG = ({ targetBlanks = {} }) => (
+      <svg viewBox="0 0 400 320" class="w-full max-w-md mx-auto rounded-2xl bg-slate-900 shadow-md">
+        <circle cx="200" cy="160" r="130" fill="#22c55e" stroke="#3b82f6" strokeWidth="4" />
+        <path d="M 200 160 L 330 160 A 130 130 0 0 1 200 290 Z" fill="none" />
+        <circle cx="200" cy="160" r="95" fill="#f97316" />
+        <circle cx="200" cy="160" r="60" fill="#eab308" />
+        <circle cx="200" cy="160" r="28" fill="#fef08a" />
+        <path d="M 200 160 L 330 160 A 130 130 0 0 1 200 290 Z" fill="#0f172a" />
+        <line x1="200" y1="160" x2="330" y2="160" stroke="#64748b" strokeWidth="2" strokeDasharray="4" />
+        <line x1="200" y1="160" x2="200" y2="290" stroke="#64748b" strokeWidth="2" strokeDasharray="4" />
+        
+        <line x1="210" y1="35" x2="270" y2="50" stroke="#f8fafc" strokeWidth="2" />
+        <line x1="210" y1="80" x2="270" y2="110" stroke="#f8fafc" strokeWidth="2" />
+        <line x1="180" y1="125" x2="270" y2="170" stroke="#f8fafc" strokeWidth="2" />
+        <line x1="190" y1="155" x2="100" y2="215" stroke="#f8fafc" strokeWidth="2" />
+
+        <g transform="translate(270, 35)">
+          <rect width="100" height="30" rx="6" fill="#1e293b" stroke="#38bdf8" strokeWidth="1.5" />
+          <text x="50" y="20" fill="#f8fafc" fontSize="13" textAnchor="middle" fontWeight="bold">
+            {targetBlanks['b1'] || '① [請填入]'}
+          </text>
+        </g>
+        <g transform="translate(270, 95)">
+          <rect width="100" height="30" rx="6" fill="#1e293b" stroke="#38bdf8" strokeWidth="1.5" />
+          <text x="50" y="20" fill="#f8fafc" fontSize="13" textAnchor="middle" fontWeight="bold">
+            {targetBlanks['b2'] || '② [請填入]'}
+          </text>
+        </g>
+        <g transform="translate(270, 155)">
+          <rect width="100" height="30" rx="6" fill="#1e293b" stroke="#38bdf8" strokeWidth="1.5" />
+          <text x="50" y="20" fill="#f8fafc" fontSize="13" textAnchor="middle" fontWeight="bold">
+            {targetBlanks['b3'] || '③ [請填入]'}
+          </text>
+        </g>
+        <g transform="translate(45, 200)">
+          <rect width="100" height="30" rx="6" fill="#1e293b" stroke="#38bdf8" strokeWidth="1.5" />
+          <text x="50" y="20" fill="#f8fafc" fontSize="13" textAnchor="middle" fontWeight="bold">
+            {targetBlanks['b4'] || '④ [請填入]'}
+          </text>
+        </g>
+      </svg>
+    );
+
+    // --- 圖片與填空標籤渲染組件 ---
+    const DiagramRenderer = ({ imageType, customUrl, targetBlanks, blankCount = 3 }) => {
+      if (imageType === 'custom' || customUrl) {
+        return (
+          <div class="space-y-4 text-center">
+            <div class="inline-block p-2 bg-slate-900 rounded-2xl shadow-lg border border-slate-700 max-w-full overflow-hidden">
+              <img 
+                src={customUrl || "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=800"} 
+                alt="科學題目圖表" 
+                class="max-h-80 object-contain rounded-lg mx-auto"
+                onError={(e) => { e.target.src = 'https://via.placeholder.com/600x350?text=圖片載入失敗，請檢查網址或重新上傳'; }}
+              />
+            </div>
+            
+            <div class={`grid gap-2 max-w-lg mx-auto pt-2 ${blankCount === 5 ? 'grid-cols-3 sm:grid-cols-5' : blankCount === 4 ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'}`}>
+              {Array.from({ length: blankCount }).map((_, idx) => {
+                const key = `b${idx + 1}`;
+                const val = targetBlanks ? targetBlanks[key] : null;
+                return (
+                  <div key={key} class={`p-2.5 rounded-xl border-2 text-center transition-all ${val ? 'bg-indigo-900/80 border-indigo-400 text-indigo-100 font-bold shadow-md' : 'bg-slate-800/80 border-slate-600 border-dashed text-slate-400'}`}>
+                    <span class="text-[10px] text-indigo-300 block font-mono">位置 ⓪{idx + 1}</span>
+                    <span class="text-sm font-black">{val || '請點擊填入'}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      }
+      
+      return <EarthStructureSVG targetBlanks={targetBlanks} />;
+    };
+
+    // --- 主程式應用組件 ---
+    function App() {
+      const isStudentModeUrl = window.location.search.includes('mode=student') || window.location.hash.includes('student');
+      
+      const [appMode, setAppMode] = useState(isStudentModeUrl ? 'student' : 'teacher');
+      const [studentSeat, setStudentSeat] = useState(null);
+      const [teacherTab, setTeacherTab] = useState('monitor'); // monitor, bank, add
+      const [showQrModal, setShowQrModal] = useState(false);
+
+      const [broadcast, setBroadcast] = useState(null);
+      const [activeQuestion, setActiveQuestion] = useState(null);
+      const [showAnswer, setShowAnswer] = useState(false);
+      const [studentAnswers, setStudentAnswers] = useState({});
+
+      // 預設題庫
+      const [questionBank, setQuestionBank] = useState([
+        {
+          id: 'q_rock_1',
+          type: 'drag',
+          title: '請根據岩石形成的過程，在正確位置填上岩石名稱：',
+          imageType: 'custom',
+          customImageUrl: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=800',
+          blankCount: 3,
+          options: ['火成岩', '變質岩', '沉積岩'],
+          correctAnswer: { b1: '火成岩', b2: '變質岩', b3: '沉積岩' },
+          explanation: '① 火成岩：岩漿冷卻凝固形成；② 變質岩：在高溫高壓下變質而成；③ 沉積岩：被水沖下的土壤沉積而成。'
+        },
+        {
+          id: 'q_mc_2',
+          type: 'mc',
+          title: '請問下圖中綠色植物進行光合作用主要吸收哪種氣體？',
+          customImageUrl: 'https://images.unsplash.com/photo-1518531933037-91b2f5f229cc?w=600',
+          options: ['氧氣', '二氧化碳', '氮氣', '氫氣'],
+          correctAnswer: 1,
+          explanation: '標準答案：(B) 二氧化碳。植物利用陽光將二氧化碳和水轉化為養分並釋放氧氣。'
+        },
+        {
+          id: 'q_boil_3',
+          type: 'numeric',
+          title: '在大氣壓下，水沸騰的標準溫度是多少攝氏度（℃）？',
+          customImageUrl: 'https://images.unsplash.com/photo-1544717305-2782549b5136?w=600',
+          correctAnswer: '100',
+          unit: '°C',
+          explanation: '標準大氣壓下，水的沸點為 100°C。'
+        }
+      ]);
+
+      // 表單狀態
+      const [newQType, setNewQType] = useState('drag');
+      const [qTitle, setQTitle] = useState('');
+      const [qImageType, setQImageType] = useState('custom');
+      const [qCustomUrl, setQCustomUrl] = useState('');
+      const [qBlankCount, setQBlankCount] = useState(3);
+      const [qDragWords, setQDragWords] = useState(['火成岩', '變質岩', '沉積岩', '', '']);
+      const [qMcOptions, setQMcOptions] = useState(['氧氣', '二氧化碳', '氮氣', '氫氣']);
+      const [qMcCorrect, setQMcCorrect] = useState(0);
+      const [qNumericAns, setQNumericAns] = useState('');
+      const [qNumericUnit, setQNumericUnit] = useState('°C'); // 自訂單位狀態
+      const [qExplanation, setQExplanation] = useState('');
+
+      const [editingQId, setEditingQId] = useState(null);
+      const [editExplanationInput, setEditExplanationInput] = useState('');
+
+      // 廣播頻道初始化
+      useEffect(() => {
+        const channel = new BroadcastChannel('4a_quiz_channel');
+        setBroadcast(channel);
+
+        channel.onmessage = (event) => {
+          const { type, payload } = event.data;
+          if (type === 'SEND_QUESTION') {
+            setActiveQuestion(payload.question);
+            setShowAnswer(false);
+          } else if (type === 'TOGGLE_ANSWER') {
+            setShowAnswer(payload.show);
+          } else if (type === 'SUBMIT_ANSWER') {
+            setStudentAnswers(prev => ({ ...prev, [payload.seat]: payload }));
+          }
+        };
+
+        return () => channel.close();
+      }, []);
+
+      // 本地圖片檔讀取 (FileReader)
+      const handleImageFileUpload = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (evt) => {
+            setQCustomUrl(evt.target.result);
+            setQImageType('custom');
+          };
+          reader.readAsDataURL(file);
+        }
+      };
+
+      // 儲存新題目
+      const handleSaveQuestion = (e) => {
+        e.preventDefault();
+        if (!qTitle.trim()) { alert('請輸入題目敘述！'); return; }
+
+        let autoModelAns = qExplanation.trim();
+        let newQ = {
+          id: 'q_' + Date.now(),
+          type: newQType,
+          title: qTitle,
+          imageType: qCustomUrl ? 'custom' : qImageType,
+          customImageUrl: qCustomUrl,
+          explanation: autoModelAns || '暫無觀念解析'
+        };
+
+        if (newQType === 'drag') {
+          const validWords = qDragWords.slice(0, qBlankCount).map(w => w.trim() || '未設定');
+          const correctMap = {};
+          validWords.forEach((word, idx) => { correctMap[`b${idx + 1}`] = word; });
+          
+          newQ.blankCount = Number(qBlankCount);
+          newQ.options = validWords;
+          newQ.correctAnswer = correctMap;
+          if (!autoModelAns) {
+            newQ.explanation = validWords.map((w, i) => `⓪${i+1}: ${w}`).join(' | ');
+          }
+        } else if (newQType === 'mc') {
+          const validOpts = qMcOptions.map(o => o.trim() || '選項');
+          newQ.options = validOpts;
+          newQ.correctAnswer = Number(qMcCorrect);
+          if (!autoModelAns) {
+            const labels = ['A', 'B', 'C', 'D'];
+            newQ.explanation = `標準答案：選項 (${labels[qMcCorrect]}) ${validOpts[qMcCorrect]}`;
+          }
+        } else if (newQType === 'numeric') {
+          newQ.correctAnswer = qNumericAns.trim();
+          newQ.unit = qNumericUnit.trim();
+          if (!autoModelAns) {
+            newQ.explanation = `標準答案：${qNumericAns.trim()} ${qNumericUnit.trim()}`;
+          }
+        }
+
+        setQuestionBank(prev => [newQ, ...prev]);
+        setQTitle('');
+        setQExplanation('');
+        setQCustomUrl('');
+        setTeacherTab('bank');
+        playSound('click');
+      };
+
+      // 編輯題目解析
+      const handleSaveEditedExplanation = (qId) => {
+        setQuestionBank(prev => prev.map(q => q.id === qId ? { ...q, explanation: editExplanationInput } : q));
+        if (activeQuestion && activeQuestion.id === qId) {
+          setActiveQuestion(prev => ({ ...prev, explanation: editExplanationInput }));
+        }
+        setEditingQId(null);
+        playSound('click');
+      };
+
+      // 發布題目
+      const handlePushQuestion = (q) => {
+        setActiveQuestion(q);
+        setShowAnswer(false);
+        if (broadcast) {
+          broadcast.postMessage({ type: 'SEND_QUESTION', payload: { question: q } });
+        }
+        playSound('submit');
+      };
+
+      // 切換顯示標準答案
+      const handleToggleShowAnswer = () => {
+        const nextState = !showAnswer;
+        setShowAnswer(nextState);
+        if (broadcast) {
+          broadcast.postMessage({ type: 'TOGGLE_ANSWER', payload: { show: nextState } });
+        }
+        playSound('click');
+      };
+
+      // 學生提交答案
+      const handleStudentSubmit = (ansData) => {
+        const payload = {
+          seat: studentSeat,
+          answer: ansData,
+          timestamp: new Date().toLocaleTimeString()
+        };
+        if (broadcast) {
+          broadcast.postMessage({ type: 'SUBMIT_ANSWER', payload });
+        }
+        setStudentAnswers(prev => ({ ...prev, [studentSeat]: payload }));
+        playSound('submit');
+      };
+
+      // 學生端狀態
+      const [studentDragSelections, setStudentDragSelections] = useState({});
+      const [studentNumericInput, setStudentNumericInput] = useState('');
+      const [studentMcChoice, setStudentMcChoice] = useState(null);
+
+      useEffect(() => {
+        setStudentDragSelections({});
+        setStudentNumericInput('');
+        setStudentMcChoice(null);
+      }, [activeQuestion?.id]);
+
+      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(window.location.origin + window.location.pathname + '?mode=student#student')}`;
+
+      return (
+        <div class="max-w-5xl mx-auto p-4 sm:p-6">
+          {/* 頁尾抬頭導航 */}
+          <header class="bg-white rounded-2xl p-4 shadow-sm mb-6 flex flex-wrap items-center justify-between gap-4 border border-slate-200">
+            <div class="flex items-center gap-3">
+              <span class="text-3xl">🚀</span>
+              <div>
+                <h1 class="text-2xl font-black text-slate-800 tracking-tight">4A 班問答大賽</h1>
+              </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <button 
+                onClick={() => setShowQrModal(true)}
+                class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-3.5 py-2 rounded-xl text-sm font-bold flex items-center gap-1.5 transition border border-emerald-200"
+              >
+                📱 學生掃碼加入
+              </button>
+
+              <div class="bg-slate-100 p-1 rounded-xl flex">
+                <button 
+                  onClick={() => { setAppMode('teacher'); playSound('click'); }}
+                  class={`px-3 py-1.5 rounded-lg text-sm font-bold transition ${appMode === 'teacher' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                >
+                  教師端
+                </button>
+                <button 
+                  onClick={() => { setAppMode('student'); playSound('click'); }}
+                  class={`px-3 py-1.5 rounded-lg text-sm font-bold transition ${appMode === 'student' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                >
+                  學生 iPad 端
+                </button>
+              </div>
+            </div>
+          </header>
+
+          {/* QR Code 彈窗 */}
+          {showQrModal && (
+            <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div class="bg-white rounded-3xl p-6 max-w-sm w-full text-center shadow-2xl relative border border-slate-100">
+                <button 
+                  onClick={() => setShowQrModal(false)}
+                  class="absolute top-4 right-4 text-slate-400 hover:text-slate-700 font-bold text-xl"
+                >
+                  ✕
+                </button>
+                <h3 class="text-xl font-bold text-slate-800 mb-1">iPad 掃碼進入問答</h3>
+                <p class="text-xs text-slate-500 mb-4">請學生使用 iPad 相機掃描二維碼</p>
+                <img src={qrUrl} alt="QR Code" class="w-56 h-56 mx-auto rounded-2xl border-2 border-slate-100 p-2 shadow-inner mb-4" />
+                <p class="text-[11px] font-mono text-indigo-600 bg-indigo-50 p-2 rounded-xl break-all">
+                  {window.location.origin + window.location.pathname}?mode=student
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* ---------------- 教師端界面 ---------------- */}
+          {appMode === 'teacher' && (
+            <div class="space-y-6">
+              {/* 教師端標籤選單 */}
+              <div class="flex border-b border-slate-200 gap-4">
+                <button 
+                  onClick={() => setTeacherTab('monitor')} 
+                  class={`pb-3 text-sm font-bold transition border-b-2 ${teacherTab === 'monitor' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+                >
+                  📊 26人實時監控牆
+                </button>
+                <button 
+                  onClick={() => setTeacherTab('bank')} 
+                  class={`pb-3 text-sm font-bold transition border-b-2 ${teacherTab === 'bank' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+                >
+                  📚 題庫管理 ({questionBank.length})
+                </button>
+                <button 
+                  onClick={() => setTeacherTab('add')} 
+                  class={`pb-3 text-sm font-bold transition border-b-2 ${teacherTab === 'add' ? 'border-indigo-600 text-indigo-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}
+                >
+                  ➕ 新增題目與圖片設定
+                </button>
+              </div>
+
+              {/* 1. 實時監控牆 */}
+              {teacherTab === 'monitor' && (
+                <div class="space-y-6">
+                  {/* 當前題目卡片 */}
+                  <div class="bg-indigo-900 text-white rounded-3xl p-6 shadow-xl relative overflow-hidden">
+                    <div class="flex flex-wrap items-center justify-between gap-4 border-b border-indigo-800/80 pb-4 mb-4">
+                      <div class="flex items-center gap-2">
+                        <span class="bg-indigo-700 text-indigo-100 text-xs px-3 py-1 rounded-full font-bold">當前發布題目</span>
+                        {activeQuestion && <span class="bg-emerald-500 text-white text-xs px-2.5 py-1 rounded-full font-bold">進行中</span>}
+                      </div>
+
+                      {activeQuestion && (
+                        <button 
+                          onClick={handleToggleShowAnswer}
+                          class={`px-4 py-2 rounded-xl text-sm font-bold transition flex items-center gap-2 ${showAnswer ? 'bg-amber-400 text-amber-950' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}`}
+                        >
+                          {showAnswer ? '🙈 隱藏標準答案' : '🏆 公布標準答案給學生'}
+                        </button>
+                      )}
+                    </div>
+
+                    {activeQuestion ? (
+                      <div class="space-y-4">
+                        <h2 class="text-xl font-bold">{activeQuestion.title}</h2>
+                        
+                        {/* 圖片展示 */}
+                        {activeQuestion.type === 'drag' ? (
+                          <div class="bg-slate-900/50 p-4 rounded-2xl border border-indigo-700/50">
+                            <DiagramRenderer 
+                              imageType={activeQuestion.imageType} 
+                              customUrl={activeQuestion.customImageUrl} 
+                              targetBlanks={showAnswer ? activeQuestion.correctAnswer : {}}
+                              blankCount={activeQuestion.blankCount || 3}
+                            />
+                          </div>
+                        ) : activeQuestion.customImageUrl && (
+                          <div class="text-center bg-slate-900/50 p-3 rounded-2xl border border-indigo-700/50">
+                            <img src={activeQuestion.customImageUrl} alt="題目圖片" class="max-h-60 object-contain rounded-xl mx-auto shadow-md" />
+                          </div>
+                        )}
+
+                        {showAnswer && (
+                          <div class="bg-amber-500/20 border-2 border-amber-400 p-4 rounded-2xl text-amber-100 animate-fadeIn">
+                            <div class="font-bold text-amber-300 mb-1 flex items-center gap-2">
+                              <span>🏆 標準答案與觀念解析：</span>
+                            </div>
+                            <p class="text-sm font-semibold">{activeQuestion.explanation || '未設定解析'}</p>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div class="text-center py-8 text-indigo-300">
+                        <p class="text-lg font-bold mb-2">課堂準備中，尚未發布題目</p>
+                        <p class="text-xs">請切換至「📚 題庫管理」選擇題目並點擊「🚀 發布至學生 iPad」</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 座號 1-26 學生監控牆 */}
+                  <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
+                    <div class="flex items-center justify-between mb-4">
+                      <h3 class="font-bold text-slate-800 text-lg flex items-center gap-2">
+                        <span>4A 班 26 座號學生實時作答牆</span>
+                        <span class="text-xs font-normal text-slate-500">(已收到 {Object.keys(studentAnswers).length} / 26 人作答)</span>
+                      </h3>
+                    </div>
+
+                    <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-7 gap-3">
+                      {Array.from({ length: 26 }, (_, i) => i + 1).map(seatNum => {
+                        const sub = studentAnswers[seatNum];
+                        return (
+                          <div 
+                            key={seatNum} 
+                            class={`p-3 rounded-2xl border-2 transition text-center relative overflow-hidden ${sub ? 'bg-emerald-50 border-emerald-400 text-emerald-950' : 'bg-slate-50 border-slate-200 text-slate-400'}`}
+                          >
+                            <div class="flex items-center justify-between mb-1">
+                              <span class="text-xs font-bold px-2 py-0.5 rounded-md bg-white/80 text-slate-700 shadow-xs">
+                                {seatNum} 號
+                              </span>
+                              <span class={`w-2 h-2 rounded-full ${sub ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`}></span>
+                            </div>
+
+                            <div class="py-2 min-h-[50px] flex items-center justify-center">
+                              {sub ? (
+                                <span class="text-xs font-bold text-emerald-800 break-all line-clamp-2">
+                                  {typeof sub.answer === 'object' ? JSON.stringify(sub.answer).replace(/[{}"]/g, '') : sub.answer}
+                                </span>
+                              ) : (
+                                <span class="text-xs text-slate-400">思考中...</span>
+                              )}
+                            </div>
+
+                            {sub && <p class="text-[10px] text-emerald-600 font-mono">{sub.timestamp}</p>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 2. 題庫管理 */}
+              {teacherTab === 'bank' && (
+                <div class="space-y-4">
+                  {questionBank.map((q) => (
+                    <div key={q.id} class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+                      <div class="flex items-start justify-between gap-4">
+                        <div>
+                          <div class="flex items-center gap-2 mb-2">
+                            <span class="inline-block px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-50 text-indigo-700">
+                              {q.type === 'drag' ? '🖼️ 圖文填空題' : q.type === 'numeric' ? '🔢 數字填空題' : '🔘 單項選擇題'}
+                            </span>
+                            {q.customImageUrl && <span class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md font-bold">📷 含圖片</span>}
+                            {q.type === 'numeric' && q.unit && <span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-md font-bold">單位：{q.unit}</span>}
+                          </div>
+                          <h3 class="font-bold text-slate-800 text-base">{q.title}</h3>
+                        </div>
+
+                        <button 
+                          onClick={() => handlePushQuestion(q)}
+                          class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-xl text-sm shrink-0 transition shadow-sm flex items-center gap-1.5"
+                        >
+                          🚀 發布至學生 iPad
+                        </button>
+                      </div>
+
+                      {/* 解析與答案管理 */}
+                      <div class="bg-slate-50 p-3 rounded-xl border border-slate-200">
+                        {editingQId === q.id ? (
+                          <div class="space-y-2">
+                            <label class="block text-xs font-bold text-slate-700">修改標準答案與觀念解析：</label>
+                            <textarea 
+                              value={editExplanationInput} 
+                              onChange={(e) => setEditExplanationInput(e.target.value)}
+                              class="w-full p-2 border border-slate-300 rounded-lg text-xs"
+                              rows="2"
+                            />
+                            <button 
+                              onClick={() => handleSaveEditedExplanation(q.id)}
+                              class="bg-indigo-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-indigo-700"
+                            >
+                              儲存修改
+                            </button>
+                          </div>
+                        ) : (
+                          <div class="flex items-center justify-between text-xs">
+                            <p class="text-slate-600 font-medium">
+                              <span class="font-bold text-slate-800">🏆 標準答案與解析：</span> {q.explanation || '未設定解析'}
+                            </p>
+                            <button 
+                              onClick={() => { setEditingQId(q.id); setEditExplanationInput(q.explanation || ''); }}
+                              class="text-indigo-600 hover:text-indigo-800 font-bold shrink-0 ml-2"
+                            >
+                              ✏️ 編輯標準答案
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* 3. 新增題目 */}
+              {teacherTab === 'add' && (
+                <form onSubmit={handleSaveQuestion} class="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 space-y-6">
+                  <h3 class="font-bold text-slate-800 text-lg border-b pb-3">➕ 預設題目與出題設定</h3>
+
+                  <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-2">1. 選擇題型</label>
+                    <div class="grid grid-cols-3 gap-3">
+                      <button 
+                        type="button"
+                        onClick={() => setNewQType('drag')} 
+                        class={`p-3 rounded-xl border-2 font-bold text-sm text-center transition ${newQType === 'drag' ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600'}`}
+                      >
+                        🖼️ 圖文填空題
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => setNewQType('numeric')} 
+                        class={`p-3 rounded-xl border-2 font-bold text-sm text-center transition ${newQType === 'numeric' ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600'}`}
+                      >
+                        🔢 數字填空題
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => setNewQType('mc')} 
+                        class={`p-3 rounded-xl border-2 font-bold text-sm text-center transition ${newQType === 'mc' ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600'}`}
+                      >
+                        🔘 單項選擇題
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-2">2. 題目敘述</label>
+                    <input 
+                      type="text" 
+                      value={qTitle}
+                      onChange={(e) => setQTitle(e.target.value)}
+                      placeholder="例：請算出以下圖表數值或選出正確答案..."
+                      class="w-full p-3 border border-slate-300 rounded-xl text-sm font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                    />
+                  </div>
+
+                  {/* 通用圖片上傳區 */}
+                  <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                    <label class="block text-sm font-bold text-slate-700">3. 插入題目圖片 (所有題型皆適用)</label>
+                    <input 
+                      type="file" 
+                      accept="image/*"
+                      onChange={handleImageFileUpload}
+                      class="block w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100"
+                    />
+                    <p class="text-xs text-slate-400 font-bold">或輸入圖片網址 (URL)：</p>
+                    <input 
+                      type="text"
+                      value={qCustomUrl}
+                      onChange={(e) => { setQCustomUrl(e.target.value); setQImageType('custom'); }}
+                      placeholder="https://..."
+                      class="w-full p-2.5 border border-slate-300 rounded-xl text-xs font-mono"
+                    />
+                    {qCustomUrl && (
+                      <div class="pt-2 text-center">
+                        <span class="text-xs text-slate-500 font-bold block mb-1">圖片預覽：</span>
+                        <img src={qCustomUrl} alt="預覽圖片" class="max-h-36 rounded-xl mx-auto border border-slate-300 object-contain shadow-xs" />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 圖文填空題區塊 */}
+                  {newQType === 'drag' && (
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
+                      <div>
+                        <label class="block text-sm font-bold text-slate-700 mb-2">4. 設定填空個數 (3 至 5 個)</label>
+                        <div class="flex gap-3">
+                          {[3, 4, 5].map((cnt) => (
+                            <button 
+                              key={cnt}
+                              type="button"
+                              onClick={() => setQBlankCount(cnt)}
+                              class={`px-4 py-2 rounded-xl border-2 font-bold text-sm transition ${qBlankCount === cnt ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-slate-200 text-slate-700'}`}
+                            >
+                              {cnt} 個填空
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label class="block text-sm font-bold text-slate-700 mb-2">5. 設定填空的標準答案詞庫</label>
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          {Array.from({ length: qBlankCount }).map((_, idx) => (
+                            <div key={idx}>
+                              <span class="text-xs text-slate-500 font-bold mb-1 block">位置 ⓪{idx + 1} 答案：</span>
+                              <input 
+                                type="text"
+                                value={qDragWords[idx] || ''}
+                                onChange={(e) => {
+                                  const updated = [...qDragWords];
+                                  updated[idx] = e.target.value;
+                                  setQDragWords(updated);
+                                }}
+                                placeholder={`例如：火成岩`}
+                                class="w-full p-2 border border-slate-300 rounded-lg text-xs font-bold"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 單項選擇題區塊 */}
+                  {newQType === 'mc' && (
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                      <label class="block text-sm font-bold text-slate-700">4. 設定 4 個單選選項與正確答案</label>
+                      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {['A', 'B', 'C', 'D'].map((label, idx) => (
+                          <div key={label} class="flex items-center gap-2 bg-white p-2.5 rounded-xl border border-slate-200">
+                            <input 
+                              type="radio" 
+                              name="mc_correct"
+                              checked={qMcCorrect === idx}
+                              onChange={() => setQMcCorrect(idx)}
+                              class="w-4 h-4 text-indigo-600"
+                            />
+                            <span class="font-bold text-xs text-indigo-700 w-6">({label})</span>
+                            <input 
+                              type="text" 
+                              value={qMcOptions[idx] || ''}
+                              onChange={(e) => {
+                                const updated = [...qMcOptions];
+                                updated[idx] = e.target.value;
+                                setQMcOptions(updated);
+                              }}
+                              placeholder={`選項 ${label} 內容`}
+                              class="w-full p-1.5 border border-slate-200 rounded-lg text-xs font-bold"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                      <p class="text-xs text-slate-400 font-bold">點擊單選圓鈕可指定該項為「正確答案」</p>
+                    </div>
+                  )}
+
+                  {/* 數字填空題區塊 (含自訂單位輸入框) */}
+                  {newQType === 'numeric' && (
+                    <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                      <div>
+                        <label class="block text-sm font-bold text-slate-700 mb-1">4. 標準數字答案 (限制純數字)</label>
+                        <input 
+                          type="number"
+                          value={qNumericAns}
+                          onChange={(e) => setQNumericAns(e.target.value)}
+                          placeholder="例如：100"
+                          class="w-full p-3 border border-slate-300 rounded-xl text-base font-bold font-mono"
+                        />
+                      </div>
+                      <div>
+                        <label class="block text-sm font-bold text-slate-700 mb-1">5. 自訂單位 (例如：°C、g、cm、ml、個... 無單位請留空)</label>
+                        <input 
+                          type="text"
+                          value={qNumericUnit}
+                          onChange={(e) => setQNumericUnit(e.target.value)}
+                          placeholder="例如：°C、g、cm 或留空"
+                          class="w-full p-2.5 border border-slate-300 rounded-xl text-sm font-bold"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-2">6. 標準答案與觀念解析</label>
+                    <textarea 
+                      value={qExplanation}
+                      onChange={(e) => setQExplanation(e.target.value)}
+                      placeholder="例：詳細的觀念解析說明..."
+                      class="w-full p-3 border border-slate-300 rounded-xl text-sm font-medium focus:ring-2 focus:ring-indigo-500 outline-none"
+                      rows="3"
+                    />
+                  </div>
+
+                  <button 
+                    type="submit" 
+                    class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3.5 rounded-xl shadow-md transition"
+                  >
+                    💾 儲存題目至題庫
+                  </button>
+                </form>
+              )}
+            </div>
+          )}
+
+          {/* ---------------- 學生 iPad 端界面 ---------------- */}
+          {appMode === 'student' && (
+            <div class="space-y-6">
+              {!studentSeat ? (
+                <div class="bg-white p-6 rounded-3xl shadow-md border border-slate-200 text-center space-y-6">
+                  <div>
+                    <h2 class="text-2xl font-black text-slate-800 mb-1">請選擇你的課堂座號</h2>
+                    <p class="text-xs text-slate-500">點擊座號後進入問答大賽等待區</p>
+                  </div>
+
+                  <div class="grid grid-cols-4 sm:grid-cols-6 gap-3 max-w-xl mx-auto">
+                    {Array.from({ length: 26 }, (_, i) => i + 1).map(num => (
+                      <button 
+                        key={num}
+                        onClick={() => { setStudentSeat(num); playSound('click'); }}
+                        class="p-4 bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white rounded-2xl text-xl font-black transition border border-indigo-100 shadow-xs active:scale-95"
+                      >
+                        {num}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div class="space-y-6">
+                  <div class="bg-slate-800 text-white p-4 rounded-2xl flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                      <span class="bg-indigo-500 text-white text-xs px-3 py-1 rounded-full font-bold">4A 班學生 iPad</span>
+                      <span class="font-black text-lg">座號：{studentSeat} 號</span>
+                    </div>
+                    <button 
+                      onClick={() => setStudentSeat(null)}
+                      class="text-xs bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-lg text-slate-300"
+                    >
+                      重選座號
+                    </button>
+                  </div>
+
+                  {activeQuestion ? (
+                    <div class="bg-white p-6 rounded-3xl shadow-md border border-slate-200 space-y-6">
+                      <h2 class="text-xl font-bold text-slate-800">{activeQuestion.title}</h2>
+
+                      {/* 1. 圖文填空題 */}
+                      {activeQuestion.type === 'drag' && (
+                        <div class="space-y-6">
+                          <DiagramRenderer 
+                            imageType={activeQuestion.imageType} 
+                            customUrl={activeQuestion.customImageUrl} 
+                            targetBlanks={studentDragSelections}
+                            blankCount={activeQuestion.blankCount || 3}
+                          />
+
+                          <div class="bg-slate-100 p-4 rounded-2xl text-center space-y-3">
+                            <p class="text-xs font-bold text-slate-500">點擊下方詞條，順序填入圖表位置：</p>
+                            <div class="flex flex-wrap justify-center gap-2">
+                              {activeQuestion.options?.map((word, wIdx) => {
+                                const isSelected = Object.values(studentDragSelections).includes(word);
+                                return (
+                                  <button 
+                                    key={wIdx}
+                                    onClick={() => {
+                                      const blankCount = activeQuestion.blankCount || 3;
+                                      for (let i = 1; i <= blankCount; i++) {
+                                        const k = `b${i}`;
+                                        if (!studentDragSelections[k]) {
+                                          setStudentDragSelections(prev => ({ ...prev, [k]: word }));
+                                          playSound('click');
+                                          break;
+                                        }
+                                      }
+                                    }}
+                                    disabled={isSelected}
+                                    class={`px-4 py-2.5 rounded-xl text-sm font-bold transition shadow-xs ${isSelected ? 'bg-slate-300 text-slate-500 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700 active:scale-95'}`}
+                                  >
+                                    {word} {isSelected && '✓'}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            {Object.keys(studentDragSelections).length > 0 && (
+                              <button 
+                                onClick={() => setStudentDragSelections({})}
+                                class="text-xs text-rose-500 hover:underline font-bold mt-2"
+                              >
+                                🔄 清除所有重填
+                              </button>
+                            )}
+                          </div>
+
+                          <button 
+                            onClick={() => handleStudentSubmit(studentDragSelections)}
+                            class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-2xl text-lg shadow-md transition active:scale-98"
+                          >
+                            📤 提交答案到老師螢幕
+                          </button>
+                        </div>
+                      )}
+
+                      {/* 2. 單項選擇題 */}
+                      {activeQuestion.type === 'mc' && (
+                        <div class="space-y-6">
+                          {activeQuestion.customImageUrl && (
+                            <div class="text-center">
+                              <img src={activeQuestion.customImageUrl} alt="題目圖片" class="max-h-64 object-contain rounded-2xl mx-auto shadow-sm border border-slate-200" />
+                            </div>
+                          )}
+
+                          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {activeQuestion.options?.map((opt, oIdx) => {
+                              const labels = ['A', 'B', 'C', 'D'];
+                              const isSelected = studentMcChoice === oIdx;
+                              return (
+                                <button 
+                                  key={oIdx}
+                                  onClick={() => { setStudentMcChoice(oIdx); playSound('click'); }}
+                                  class={`p-4 rounded-2xl border-2 text-left font-bold transition flex items-center gap-3 ${isSelected ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-slate-50 hover:bg-slate-100 text-slate-800 border-slate-200'}`}
+                                >
+                                  <span class={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-sm ${isSelected ? 'bg-white text-indigo-600' : 'bg-indigo-100 text-indigo-700'}`}>
+                                    {labels[oIdx]}
+                                  </span>
+                                  <span class="text-base">{opt || `選項 ${labels[oIdx]}`}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          <button 
+                            onClick={() => handleStudentSubmit(studentMcChoice !== null ? `(${['A','B','C','D'][studentMcChoice]}) ${activeQuestion.options[studentMcChoice]}` : '')}
+                            disabled={studentMcChoice === null}
+                            class={`w-full font-bold py-4 rounded-2xl text-lg shadow-md transition ${studentMcChoice !== null ? 'bg-emerald-600 hover:bg-emerald-700 text-white active:scale-98' : 'bg-slate-300 text-slate-500 cursor-not-allowed'}`}
+                          >
+                            📤 提交答案到老師螢幕
+                          </button>
+                        </div>
+                      )}
+
+                      {/* 3. 數字填空題 (使用老師輸入的自訂單位) */}
+                      {activeQuestion.type === 'numeric' && (
+                        <div class="space-y-6 max-w-sm mx-auto text-center">
+                          {activeQuestion.customImageUrl && (
+                            <div class="text-center mb-2">
+                              <img src={activeQuestion.customImageUrl} alt="題目圖片" class="max-h-56 object-contain rounded-2xl mx-auto shadow-sm border border-slate-200" />
+                            </div>
+                          )}
+
+                          <div class="text-4xl font-black text-indigo-600 bg-indigo-50 py-6 rounded-2xl border border-indigo-100">
+                            {studentNumericInput || '___'} <span class="text-xl text-slate-500 font-bold">{activeQuestion.unit || ''}</span>
+                          </div>
+
+                          <div class="grid grid-cols-3 gap-2">
+                            {['1','2','3','4','5','6','7','8','9','C','0','⌫'].map((btn) => (
+                              <button 
+                                key={btn}
+                                onClick={() => {
+                                  if (btn === 'C') setStudentNumericInput('');
+                                  else if (btn === '⌫') setStudentNumericInput(prev => prev.slice(0, -1));
+                                  else setStudentNumericInput(prev => prev + btn);
+                                  playSound('click');
+                                }}
+                                class="p-4 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xl font-bold transition active:scale-95"
+                              >
+                                {btn}
+                              </button>
+                            ))}
+                          </div>
+
+                          <button 
+                            onClick={() => handleStudentSubmit(studentNumericInput + (activeQuestion.unit ? ` ${activeQuestion.unit}` : ''))}
+                            class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-2xl text-lg shadow-md transition"
+                          >
+                            📤 提交答案
+                          </button>
+                        </div>
+                      )}
+
+                      {showAnswer && (
+                        <div class="bg-amber-500/10 border-2 border-amber-400 p-5 rounded-2xl text-slate-800 space-y-2 animate-fadeIn">
+                          <h4 class="font-bold text-amber-800 flex items-center gap-2">
+                            <span>🏆 老師公布標準答案與觀念解析：</span>
+                          </h4>
+                          <p class="text-sm font-semibold">{activeQuestion.explanation || '請參照課堂說明'}</p>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div class="bg-white p-12 rounded-3xl text-center space-y-3 border border-slate-200 shadow-sm">
+                      <div class="text-4xl animate-bounce">⏳</div>
+                      <h3 class="text-lg font-bold text-slate-800">已進入答題準備區</h3>
+                      <p class="text-xs text-slate-500">請等待老師在課堂發布題目...</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
